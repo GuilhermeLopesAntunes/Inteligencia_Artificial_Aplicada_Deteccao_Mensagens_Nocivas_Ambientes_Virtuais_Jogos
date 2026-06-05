@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - ENVIRONMENT=development
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: flutter_frontend
+    ports:
+      - "8080:80" 
+    volumes:
+      - ./frontend/build/web:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: always
+
+  scripts:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
+    container_name: jupyter_ml
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./scripts:/scripts
+    restart: always
