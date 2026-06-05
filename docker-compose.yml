@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -25,4 +23,15 @@ services:
       - ./frontend/build/web:/usr/share/nginx/html:ro
     depends_on:
       - backend
+    restart: always
+
+  scripts:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
+    container_name: jupyter_ml
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./scripts:/scripts
     restart: always
