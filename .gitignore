@@ -1,3 +1,11 @@
 .env
 #Adicioanr aqui os arquivos dos frameworks
 
+# Modelos e checkpoints de treinamento (arquivos grandes demais para o Git)
+# Modelos finais: subir para o Hugging Face Hub
+# Checkpoints intermediarios: descartaveis, servem so para retomar treino
+scripts/datasets/bertimbau_modelo_tcc/
+scripts/datasets/bertimbau_modelo_balanceado/
+scripts/datasets/modelo_tcc_final/
+scripts/datasets/modelo_tcc_balanceado_final/
+

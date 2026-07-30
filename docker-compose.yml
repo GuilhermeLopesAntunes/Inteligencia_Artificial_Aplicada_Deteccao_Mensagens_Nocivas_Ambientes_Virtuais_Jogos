@@ -26,12 +26,20 @@ services:
     restart: always
 
   scripts:
-    build:
-      context: ./scripts
-      dockerfile: Dockerfile
-    container_name: jupyter_ml
-    ports:
-      - "8888:8888"
-    volumes:
-      - ./scripts:/scripts
-    restart: always
+      build:
+        context: ./scripts
+        dockerfile: Dockerfile
+      container_name: jupyter_ml
+      ports:
+        - "8888:8888"
+      volumes:
+        - ./scripts:/scripts
+      restart: always
+      # --- BLOCO ADICIONADO PARA ATIVAR A RTX 5050 ---
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: all
+                capabilities: [gpu]
