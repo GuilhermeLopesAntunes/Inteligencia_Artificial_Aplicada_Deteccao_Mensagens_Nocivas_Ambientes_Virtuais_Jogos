@@ -1,4 +1,6 @@
 .env
+__pycache__/
+*.pyc
 #Adicioanr aqui os arquivos dos frameworks
 
 # Modelos e checkpoints de treinamento (arquivos grandes demais para o Git)
