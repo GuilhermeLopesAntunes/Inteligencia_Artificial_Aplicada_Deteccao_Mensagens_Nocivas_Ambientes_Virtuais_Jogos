@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.api.core.model_loader import classify_text
+
 router = APIRouter()
 
 # Define o formato do dado que o Flutter vai enviar para a API
@@ -20,15 +22,11 @@ def predict_message(payload: TextPayload):
     """
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="O texto não pode estar vazio.")
-    
-    # Placeholder: Aqui entrará a lógica onde carrega o modelo treinado
-    # na pasta /scripts e passa o texto por ele.
-    
-    # Exemplo de classificação
-    resultado_simulado = {
+
+    label, confidence = classify_text(payload.text)
+
+    return {
         "text": payload.text,
-        "label": "normal",  
-        "confidence": 0.95
+        "label": label,
+        "confidence": confidence,
     }
-    
-    return resultado_simulado
