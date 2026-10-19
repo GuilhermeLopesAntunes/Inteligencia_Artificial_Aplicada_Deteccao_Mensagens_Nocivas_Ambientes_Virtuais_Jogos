@@ -1,0 +1,120 @@
+### 1. Tela de Carregamento (SplashScreen — /splash)
+  • Exibição da Identidade Visual do Sistema (SvgPicture.asset): Renderiza o logo oficial
+  assets/LogoApp.svg centralizado sobre fundo branco (#FFFFFF).
+  • Indicador de Inicialização e Verificação de Sessão (CircularProgressIndicator): Exibe o
+  carregamento em #0E58A8 enquanto verifica se há token JWT salvo no armazenamento seguro
+  (FlutterSecureStorage) para redirecionar ao /feed ou /login.
+  ──────
+  ### 2. Tela de Autenticação (LoginScreen — /login) — UC-18
+  • Cabeçalho Institucional (Column + SvgPicture.asset + Text): Exibe o logo assets/LogoApp.svg,
+  o título "Acesse sua conta." e o subtítulo "proteja quem você ama!" com fonte YuGothic.
+  • Entrada de E-mail do Responsável (TextField + Icon(Icons.person)): Campo de texto para o e-
+  mail com ícone preto e borda arredondada de foco #0E58A8.
+  • Entrada de Senha (TextField + Icon(Icons.lock)): Campo com obscureText: true e submissão
+  direta pelo teclado.
+  • Feedback de Erro de Credenciais (Text): Exibe "E-mail ou senha incorretos" em vermelho quando
+  o backend retorna 401 Unauthorized em POST /api/v1/auth/login.
+  • Ação de Login (ElevatedButton + CircularProgressIndicator): Botão "ENTRAR" (#0E58A8, borda
+  16px) que autentica no backend, salva o JWT e abre o /feed.
+  • Redirecionamento para Criação de Conta (Row + Text + GestureDetector): Texto "Não possui uma
+  Conta? Registrar" onde "Registrar" navega para /register.
+  ──────
+  ### 3. Tela de Criação de Conta e Vínculo (RegisterScreen — /register) — UC-18 + UC-06
+  • Cabeçalho de Cadastro (AppBar + SvgPicture.asset + Text): Logo assets/LogoApp.svg, título
+  "Crie sua conta." e subtítulo "proteja quem você ama!".
+  • Dados do Guardião (TextField x4): Campos para Nome do responsável, E-mail, Senha e Confirme
+  sua senha.
+  • Seletor do Tipo de Vínculo com a Criança (Row + ChoiceChip): Permite alternar entre:
+      • Cadastrar Filho(a) (torna-se Responsável Primário, is_primary: true).
+      • Usar Código (co-parentalidade — torna-se Responsável Secundário, is_primary: false).
+  • Entrada de Nome da Criança ou Código de Convite (TextField): Recebe o dependent_name (ex.:
+  "Gabriel") ou o invite_code (ex.: "dep-001" / código de 6 caracteres).
+  • Submissão do Registro (ElevatedButton): Botão "REGISTRAR" (#0E58A8, borda 16px) que chama
+  POST /api/v1/auth/register, cria o responsável + criança no SQLite (já sincronizando com o
+  Simulador Web) e entra no /feed.
+  ──────
+  ### 4. Tela de Feed de Incidentes (FeedScreen — /feed) — UC-01, UC-02, UC-10, UC-11, UC-13
+  • Barra Superior e Navegação (AppBar + PopupMenuButton / IconButton): Exibe o título "Feed de
+  Incidentes", indicador de conexão em tempo real (WebSocket ativo/reconectando) e botão de
+  acesso às Configurações (Icons.settings) e Logout (Icons.logout).
+  • Filtro por Dependente Monitorado (DropdownButtonFormField / ChoiceChip): Lista as crianças
+  retornadas por GET /api/v1/dependents (ex.: "Todos", "Lucas", "Ana", "Gabriel"), filtrando o
+  feed e exibindo o contador de mensagens seguras (safe_messages_count).
+  • Atualização da Listagem (RefreshIndicator + ListView.builder): Faz Pull-to-Refresh
+  consultando GET /api/v1/incidents?dependent_id=... (e recarrega automaticamente via fallback
+  REST se o WebSocket cair).
+  • Estado Vazio (Center + Column + Icon + Text): Exibe mensagem amigável quando não há
+  incidentes para o dependente selecionado.
+  • Card Resumo de Incidente (Card + ListTile):
+      • Indicador de Severidade (Container / Chip): Destaque visual para CRITICO (P(nocivo) ≥ 0.
+      85 — vermelho) vs COMUM (L ≤ P(nocivo) < 0.85 — laranja/amarelo).
+      • Cabeçalho do Card (Text): Nome do dependente + Papel do menor traduzido (VITIMA →
+      "Recebeu a mensagem", EMISSOR → "Enviou a mensagem", ESPECTADOR → "Estava no grupo").
+      • Prévia e Metadados (Column + Text): Texto truncado (preview de até 60 caracteres),
+      categoria (CIBERBULLYING ou LINK_SUSPEITO), confiança em % (confidence * 100) e data/hora
+      local.
+      • Badge de Status e Alertas (Column + Chip / Icon): Exibe o status atual (Detectado,
+      Visualizado, Em análise, etc.), ícone de link externo se has_link == true, alerta de
+      escalonamento se escalated == true e aviso se integrity_mismatch == true.
+  • Escuta de Alertas Críticos em Tempo Real (StreamBuilder / WebsocketService +
+  FlutterLocalNotificationsPlugin): Recebe o evento CRITICAL_INCIDENT ou INCIDENT_ESCALATED via
+  ws://.../ws/{guardian_id}?token=..., insere o card no topo da lista e dispara notificação local
+  sonora no Android.
+  ──────
+  ### 5. Tela de Detalhes e Resolução do Incidente (IncidentDetailScreen — /incident-detail) —
+  UC-04, UC-07, UC-08, UC-09, UC-17
+
+  • Barra Superior com Exclusão LGPD (AppBar + IconButton(Icons.delete)): Exibe o botão de
+  exclusão definitiva somente se _isPrimary == true (Responsável Primário daquela criança).
+  • Registro Automático de Visualização (initState → POST /api/v1/incidents/{id}/view):
+  Transiciona automaticamente e de forma idempotente o status de DETECTADO para VISUALIZADO ao
+  abrir a tela.
+  • Cabeçalho de Classificação e Auditoria SHA-256 (Card + Column + Wrap + Chip):
+      • Exibe dependente, papel do menor (VITIMA, EMISSOR, ESPECTADOR), tipo de sala (jogo — Modo
+      Gamer 0.70 ou conversa), severidade (CRITICO / COMUM), probabilidade confidence em % e
+      badge de integridade SHA-256 (integrity_valid / integrity_mismatch).
+  • Linha do Tempo Contextual das Mensagens (Column + Card / Balões de Chat):
+      • Contexto Anterior (ListView / Column — context_before): Até 3 mensagens anteriores da
+      conversa capturadas pelo buffer circular em memória.
+      • Mensagem Principal Infratora (Container destacado — main_message): Texto completo da
+      mensagem nociva, remetente (sender_id), horário e hash SHA-256.
+      • Contexto Posterior (ListView / Column — context_after): Até 3 mensagens posteriores na
+      janela de 10 minutos.
+  • Gestão da Máquina de Estados do Incidente (Wrap + ElevatedButton + AlertDialog):
+      • Renderiza dinamicamente apenas os botões das transições permitidas (allowed_transitions
+      retornadas pela API):
+          • De VISUALIZADO → botão Colocar em Análise (EM_ANALISE).
+          • De EM_ANALISE → botões Conversei com meu filho (CONVERSADO_COM_FILHO), Encaminhado à
+          escola (ENCAMINHADO_A_ESCOLA) e Alarme falso (Falso Positivo) (FALSO_POSITIVO).
+      • Modal de Observação (AlertDialog + TextField): Solicita nota opcional (note) ao concluir
+      a resolução ou reportar falso positivo (PATCH /api/v1/incidents/{id}/status).
+  • Histórico de Transições (ExpansionTile / Column — status_history): Lista quem alterou cada
+  status (guardian_name), quando (changed_at) e a nota registrada.
+  • Ações Probatórias e LGPD (Row + ElevatedButton.icon + OutlinedButton.icon):
+      • Exportar Relatório PDF (ElevatedButton.icon(Icons.picture_as_pdf)): Chama GET
+      /api/v1/incidents/{id}/report, salva o PDF com hash SHA-256 e abre no leitor nativo
+      (OpenFilex).
+      • Excluir Registro — Direito ao Esquecimento LGPD (OutlinedButton.icon(Icons.delete) +
+      AlertDialog): Visível apenas para o Responsável Primário; pede confirmação irreversível e
+      chama DELETE /api/v1/incidents/{id}.
+  ──────
+  ### 6. Tela de Configurações, Calibração e Dependentes (SettingsScreen — /settings) — UC-03,
+  UC-06
+
+  • Barra Superior com Adição de Dependente (AppBar + IconButton(Icons.person_add_alt_1)): Botão
+  que abre o modal para cadastrar um 2º ou 3º filho.
+  • Modal de Novo Dependente (AlertDialog + TextField + ElevatedButton): Envia POST
+  /api/v1/dependents com o nome da criança, vinculando o guardião como is_primary: true e
+  disponibilizando a criança imediatamente no Simulador Web.
+  • Lista de Dependentes e Calibração de Sensibilidade (ListView.builder + Card):
+      • Identificação do Dependente e Papel do Guardião (Text + Chip): Nome da criança +
+      indicação (Primário) ou (Secundário) e contador de mensagens seguras analisadas
+      (safe_messages_count).
+      • Controle Deslizante de Limiar Comum (Slider + Text): Ajusta common_threshold estritamente
+      no intervalo 0.50 (50%) a 0.84 (84%) (passo 0.01, divisions: 34), enviando PATCH
+      /api/v1/dependents/{id}/threshold.
+      • Trava de Permissão para Co-parentalidade (Slider.onChanged: null + Text): Se dependent.
+      isPrimary == false, desabilita o Slider e exibe o aviso "Apenas o responsável primário pode
+      calibrar este limite" (regra de negócio RN-03).
+      • Informativo de Limiares Fixos (Text / Tooltip): Explica que o Limiar Crítico (85%) e o
+      piso do Modo Gamer (70%) são proteções fixas do sistema.
