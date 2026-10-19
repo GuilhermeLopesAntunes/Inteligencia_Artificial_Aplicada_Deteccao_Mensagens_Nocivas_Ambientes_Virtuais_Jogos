@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Artemis — Simulador de Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Overlay de Alerta Crítico -->
+  <div id="critical-flash-overlay" class="critical-flash-overlay"></div>
+
+  <!-- Cabeçalho com Logo no Canto Superior Esquerdo -->
+  <header class="app-header">
+    <div class="brand-section">
+      <img
+        src="assets/HorizontalLogoApp.svg"
+        alt="Project Artemis"
+        class="brand-logo"
+      />
+      <div class="brand-divider"></div>
+      <div class="brand-text">
+        <span class="brand-subtitle">Simulador de Chat &bull; Motor Neural BERTimbau</span>
+      </div>
+    </div>
+
+    <div class="header-status">
+      <span id="api-status-badge" class="status-badge offline" title="Verificando conexão com http://localhost:8000...">
+        Verificando API...
+      </span>
+    </div>
+  </header>
+
+  <!-- Container Principal -->
+  <main class="app-container">
+    <!-- Barra Lateral de Configuração da Conversa e Metadados -->
+    <aside class="config-sidebar">
+      <h2 class="sidebar-title">Contexto da Simulação</h2>
+
+      <div class="form-group">
+        <label for="select-dependent">Menor Monitorado (Dependente)</label>
+        <select id="select-dependent" class="form-control"></select>
+      </div>
+
+      <div class="form-group">
+        <label for="select-room-type">Ambiente / Tipo de Sala</label>
+        <select id="select-room-type" class="form-control">
+          <option value="jogo">Sala de Jogo (Modo Gamer — L ≥ 0.70)</option>
+          <option value="conversa">Chat de Conversa Comum (L padrão)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="input-conversation-id">ID da Conversa (Buffer 3 msgs)</label>
+        <div class="input-with-button">
+          <input
+            type="text"
+            id="input-conversation-id"
+            class="form-control"
+            readonly
+          />
+          <button
+            type="button"
+            id="btn-new-conversation"
+            class="btn-secondary"
+            title="Iniciar nova sessão de conversa"
+          >
+            Nova
+          </button>
+        </div>
+      </div>
+
+      <h2 class="sidebar-title">Remetente da Mensagem</h2>
+
+      <div class="form-group">
+        <label for="select-sender">Quem está enviando?</label>
+        <select id="select-sender" class="form-control">
+          <option value="opponent">Outro Participante / Adversário</option>
+          <option value="minor">O Próprio Menor Monitorado</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="input-sender-id">Identificador do Remetente (sender_id)</label>
+        <input
+          type="text"
+          id="input-sender-id"
+          class="form-control"
+          placeholder="Ex: user-adversario-09"
+        />
+      </div>
+
+      <label class="checkbox-group" for="checkbox-direct">
+        <input type="checkbox" id="checkbox-direct" checked />
+        <span class="checkbox-label">Mensagem Direcionada ao Menor (is_direct)</span>
+      </label>
+
+      <h2 class="sidebar-title">Preferências</h2>
+
+      <label class="checkbox-group" for="checkbox-audio">
+        <input type="checkbox" id="checkbox-audio" checked />
+        <span class="checkbox-label">Alerta Sonoro em Incidente Crítico</span>
+      </label>
+
+      <label class="checkbox-group" for="checkbox-mock">
+        <input type="checkbox" id="checkbox-mock" />
+        <span class="checkbox-label">Modo Mock Offline (Sem Backend)</span>
+      </label>
+    </aside>
+
+    <!-- Área Principal do Chat -->
+    <section class="chat-workspace">
+      <!-- Feed de Mensagens do Chat -->
+      <div id="chat-messages" class="chat-messages-container">
+        <div class="chat-empty-state">
+          <span>Simulador pronto. Digite uma mensagem abaixo para analisar com o BERTimbau.</span>
+        </div>
+      </div>
+
+      <!-- Barra de Digitação e Envio -->
+      <div class="chat-input-area">
+        <div class="chat-input-box">
+          <textarea
+            id="chat-input"
+            placeholder="Digite uma mensagem para análise em tempo real (Enter para enviar, Shift+Enter para quebrar linha)..."
+          ></textarea>
+        </div>
+        <button type="button" id="btn-send" class="btn-send">
+          Enviar
+        </button>
+        <button
+          type="button"
+          id="btn-clear-chat"
+          class="btn-clear"
+          title="Limpar histórico visual do chat"
+        >
+          Limpar
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Rodapé de Auditoria Criptográfica SHA-256 e Telemetria -->
+  <footer class="audit-footer">
+    <div class="audit-group">
+      <span class="audit-label">SHA-256 (Web Crypto):</span>
+      <div class="audit-hash-wrapper">
+        <code id="audit-hash" class="audit-hash-code">—</code>
+        <button type="button" id="btn-copy-hash" class="btn-mini">Copiar</button>
+      </div>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">Integridade:</span>
+      <span id="audit-sha-match" class="audit-val val-muted">—</span>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">Categoria:</span>
+      <span id="audit-category" class="audit-val val-muted">—</span>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">P(nocivo):</span>
+      <span id="audit-confidence" class="audit-val val-muted">—</span>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">Papel do Menor:</span>
+      <span id="audit-role" class="audit-val val-muted">—</span>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">Ação:</span>
+      <span id="audit-action" class="audit-val val-muted">—</span>
+    </div>
+
+    <div class="audit-group">
+      <span class="audit-label">Latência:</span>
+      <span id="audit-latency" class="audit-val val-muted">—</span>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
