@@ -9,22 +9,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend/main.dart';
+import 'package:frontend/services/mock_api_service.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('Login screen renders without errors', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const ArtemisApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify that we're on the login screen (after splash).
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Verify that the title and subtitle are displayed.
+    expect(find.text('Acesse sua conta.'), findsOneWidget);
+    expect(find.text('proteja quem você ama!'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify that email and password fields are present.
+    expect(find.text('Digite seu usuário'), findsOneWidget);
+    expect(find.text('Digite sua senha'), findsOneWidget);
+
+    // Verify that login button and register link are present.
+    expect(find.text('ENTRAR'), findsOneWidget);
+    expect(find.text('Registrar'), findsOneWidget);
   });
 }
