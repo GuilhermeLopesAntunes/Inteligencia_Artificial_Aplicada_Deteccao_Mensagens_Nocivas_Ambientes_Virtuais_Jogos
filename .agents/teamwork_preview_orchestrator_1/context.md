@@ -1,0 +1,5 @@
+# Orchestrator Context
+
+- Workspace: C:\projects\Inteligencia_Artificial_Aplicada_Deteccao_Mensagens_Nocivas_Ambientes_Virtuais_Jogos
+- Original Request: C:\projects\Inteligencia_Artificial_Aplicada_Deteccao_Mensagens_Nocivas_Ambientes_Virtuais_Jogos\.agents\ORIGINAL_REQUEST.md
+- Directory: C:\projects\Inteligencia_Artificial_Aplicada_Deteccao_Mensagens_Nocivas_Ambientes_Virtuais_Jogos\.agents\teamwork_preview_orchestrator_1
