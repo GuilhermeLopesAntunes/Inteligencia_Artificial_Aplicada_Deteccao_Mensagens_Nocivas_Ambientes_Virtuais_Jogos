@@ -16,7 +16,7 @@ router = APIRouter(prefix="/incidents")
 
 @router.get("")
 @router.get("/", include_in_schema=False)
-def list_incidents(
+async def list_incidents(
     dependent_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     category: Optional[str] = Query(None),

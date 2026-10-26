@@ -46,8 +46,13 @@ def format_incident_summary_dict(inc: IncidentORM) -> dict:
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def connect(self, websocket: WebSocket, guardian_id: str):
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         await websocket.accept()
         if guardian_id not in self.active_connections:
             self.active_connections[guardian_id] = []
@@ -62,15 +67,27 @@ class ConnectionManager:
                 del self.active_connections[guardian_id]
         logger.info(f"WebSocket desconectado para guardian {guardian_id}")
 
+    async def _send_with_timeout(
+        self, connection: WebSocket, message: str, guardian_id: str
+    ):
+        try:
+            await asyncio.wait_for(connection.send_text(message), timeout=1.5)
+        except Exception as e:
+            logger.error(f"Erro ao enviar mensagem WebSocket: {e}")
+            if connection in self.active_connections.get(guardian_id, []):
+                self.active_connections[guardian_id].remove(connection)
+
     async def send_personal_message(self, message: str, guardian_id: str):
         if guardian_id in self.active_connections:
-            for connection in list(self.active_connections[guardian_id]):
-                try:
-                    await connection.send_text(message)
-                except Exception as e:
-                    logger.error(f"Erro ao enviar mensagem WebSocket: {e}")
-                    if connection in self.active_connections.get(guardian_id, []):
-                        self.active_connections[guardian_id].remove(connection)
+            connections = list(reversed(self.active_connections[guardian_id]))
+            if connections:
+                await asyncio.gather(
+                    *(
+                        self._send_with_timeout(conn, message, guardian_id)
+                        for conn in connections
+                    ),
+                    return_exceptions=True,
+                )
 
     async def broadcast(self, message: str):
         for guardian_id in list(self.active_connections.keys()):
@@ -97,7 +114,7 @@ class ConnectionManager:
     def notify_event_sync(
         self, event_type: str, data: dict, guardian_ids: Optional[List[str]] = None
     ):
-        """Envia evento WebSocket a partir de código síncrono ou assíncrono."""
+        """Envia evento WebSocket a partir de código síncrono ou assíncrono sem bloquear."""
         if guardian_ids is not None and not guardian_ids:
             return
         try:
@@ -105,22 +122,35 @@ class ConnectionManager:
             loop.create_task(
                 self.send_event_to_guardians(event_type, data, guardian_ids)
             )
+            return
         except RuntimeError:
-            try:
-                import anyio.from_thread
+            pass
 
-                anyio.from_thread.run(
-                    self.send_event_to_guardians, event_type, data, guardian_ids
+        if self._main_loop is not None and self._main_loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.send_event_to_guardians(event_type, data, guardian_ids),
+                    self._main_loop,
                 )
+                return
             except Exception:
-                try:
-                    asyncio.run(
-                        self.send_event_to_guardians(
-                            event_type, data, guardian_ids
-                        )
+                pass
+
+        try:
+            import anyio.from_thread
+
+            anyio.from_thread.run(
+                self.send_event_to_guardians, event_type, data, guardian_ids
+            )
+        except Exception:
+            try:
+                asyncio.run(
+                    self.send_event_to_guardians(
+                        event_type, data, guardian_ids
                     )
-                except Exception as e:
-                    logger.debug(f"Ignorando dispatch WS sem loop ativo: {e}")
+                )
+            except Exception as e:
+                logger.debug(f"Ignorando dispatch WS sem loop ativo: {e}")
 
 
 manager = ConnectionManager()

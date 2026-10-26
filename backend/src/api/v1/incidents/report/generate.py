@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/{incident_id}/report")
-def gerar_relatorio(
+async def gerar_relatorio(
     incident_id: str,
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),

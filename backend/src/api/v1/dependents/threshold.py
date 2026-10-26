@@ -16,7 +16,7 @@ class ThresholdUpdate(BaseModel):
 
 
 @router.patch("/{dependent_id}/threshold")
-def update_dependent_threshold(
+async def update_dependent_threshold(
     dependent_id: str,
     threshold_update: ThresholdUpdate,
     guardian_id: str = Depends(get_current_guardian_id),

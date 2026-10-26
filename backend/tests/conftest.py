@@ -48,7 +48,7 @@ def db_session():
 @pytest.fixture()
 def client(db_session):
     """TestClient FastAPI injetando a sessão SQLite em memória."""
-    def override_get_db():
+    async def override_get_db():
         try:
             yield db_session
         finally:

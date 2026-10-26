@@ -1,11 +1,9 @@
-import asyncio
-import anyio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.api.core.security import get_current_guardian_id
 from src.api.v1.incidents.detail import format_incident_detail
-from src.api.v1.websocket.handler import send_incident_updated_notification
+from src.api.v1.websocket.handler import manager as ws_manager
 from src.infrastructure.database import get_db
 from src.services.gestao_incidente_service import (
     ForbiddenAccessError,
@@ -32,18 +30,11 @@ def _notify_updated(incidente) -> None:
         "preview": incidente.main_message_text[:60],
         "created_at": incidente.created_at.isoformat() + "Z",
     }
-    try:
-        anyio.from_thread.run(send_incident_updated_notification, payload)
-    except RuntimeError:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(send_incident_updated_notification(payload))
-        except RuntimeError:
-            asyncio.run(send_incident_updated_notification(payload))
+    ws_manager.notify_event_sync("incident.updated", payload)
 
 
 @router.post("/{incident_id}/view")
-def marcar_como_visualizado(
+async def marcar_como_visualizado(
     incident_id: str,
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),

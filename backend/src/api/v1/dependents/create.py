@@ -24,7 +24,7 @@ class CreateDependentRequest(BaseModel):
         }
     )
 
-    name: str = Field(..., min_length=2, description="Nome da criança/dependente")
+    name: str = Field(..., min_length=1, description="Nome da criança/dependente")
     common_threshold: float = Field(
         default=0.50, ge=0.50, le=0.84, description="Limiar comum inicial (0.50 a 0.84)"
     )
@@ -32,7 +32,7 @@ class CreateDependentRequest(BaseModel):
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-def create_dependent(
+async def create_dependent(
     payload: CreateDependentRequest,
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),
@@ -76,7 +76,7 @@ def create_dependent(
 
 
 @router.get("/simulator")
-def list_dependents_for_simulator(db: Session = Depends(get_db)):
+async def list_dependents_for_simulator(db: Session = Depends(get_db)):
     """
     Retorna todos os dependentes cadastrados no sistema para alimentar dinamicamente
     o seletor de Dependente Monitorado no Simulador de Chat Web.

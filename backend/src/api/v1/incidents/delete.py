@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from src.api.core.security import get_current_guardian_id
-from src.api.v1.websocket.handler import send_incident_deleted_notification
+from src.api.v1.websocket.handler import manager as ws_manager
 from src.infrastructure.database import get_db
 from src.services.gestao_incidente_service import (
     ForbiddenAccessError,
@@ -16,18 +16,13 @@ router = APIRouter()
 
 
 def _notify_deleted(inc_id: str, dep_id: str) -> None:
-    try:
-        anyio.from_thread.run(send_incident_deleted_notification, inc_id, dep_id)
-    except RuntimeError:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(send_incident_deleted_notification(inc_id, dep_id))
-        except RuntimeError:
-            asyncio.run(send_incident_deleted_notification(inc_id, dep_id))
+    ws_manager.notify_event_sync(
+        "incident.deleted", {"id": inc_id, "dependent_id": dep_id}
+    )
 
 
 @router.delete("/{incident_id}", status_code=status.HTTP_204_NO_CONTENT)
-def excluir_incidente_endpoint(
+async def excluir_incidente_endpoint(
     incident_id: str,
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),

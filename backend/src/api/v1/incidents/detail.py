@@ -106,7 +106,7 @@ def format_incident_detail(db: Session, incidente_db: IncidentORM) -> dict:
 
 
 @router.get("/{incident_id}")
-def get_incident(
+async def get_incident(
     incident_id: str,
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),

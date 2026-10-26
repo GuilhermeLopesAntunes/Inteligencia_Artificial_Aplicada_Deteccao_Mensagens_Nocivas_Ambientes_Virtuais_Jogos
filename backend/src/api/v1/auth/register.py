@@ -44,9 +44,9 @@ class RegisterRequest(BaseModel):
         }
     )
 
-    name: str = Field(..., min_length=2, description="Nome completo do responsável")
-    email: str = Field(..., min_length=3, description="E-mail do responsável")
-    password: str = Field(..., min_length=3, description="Senha de acesso")
+    name: str = Field(..., min_length=1, description="Nome completo do responsável")
+    email: str = Field(..., min_length=1, description="E-mail ou usuário do responsável")
+    password: str = Field(..., min_length=1, description="Senha de acesso")
     dependent_name: Optional[str] = Field(
         default=None,
         description="Nome da criança/dependente a ser cadastrado (Responsável Primário)",
@@ -58,7 +58,7 @@ class RegisterRequest(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register_guardian(payload: RegisterRequest, db: Session = Depends(get_db)):
+async def register_guardian(payload: RegisterRequest, db: Session = Depends(get_db)):
     """
     Cria uma nova conta de responsável e já realiza o vínculo com a criança:
     - Se `dependent_name` for informado: cria a criança em `dependents` e vincula como Responsável Primário (`is_primary=True`).

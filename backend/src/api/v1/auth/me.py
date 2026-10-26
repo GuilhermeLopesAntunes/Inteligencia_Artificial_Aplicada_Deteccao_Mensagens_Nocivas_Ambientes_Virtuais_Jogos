@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.get("/me")
-def read_guardian_me(
+async def read_guardian_me(
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),
 ):

@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,18 +18,35 @@ if db_url.startswith("sqlite:///") and ":memory:" not in db_url:
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
 
-connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
+connect_args = (
+    {"check_same_thread": False, "timeout": 15}
+    if db_url.startswith("sqlite")
+    else {}
+)
 engine_kwargs = {"connect_args": connect_args, "echo": False}
 if ":memory:" in db_url or db_url == "sqlite://":
     engine_kwargs["poolclass"] = StaticPool
 
 engine = create_engine(db_url, **engine_kwargs)
+
+if db_url.startswith("sqlite") and ":memory:" not in db_url:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("PRAGMA busy_timeout=15000;")
+        except Exception:
+            pass
+        finally:
+            cursor.close()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-def get_db():
-    """Dependency para obter uma sessão do banco de dados."""
+async def get_db():
+    """Dependency assíncrona (Main Thread) para obter uma sessão do banco de dados."""
     db = SessionLocal()
     try:
         yield db

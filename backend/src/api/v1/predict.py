@@ -62,7 +62,7 @@ class PredictionResponse(BaseModel):
 
 
 @router.post("/predict", response_model=PredictionResponse)
-def predict_message(payload: PredictPayload, db: Session = Depends(get_db)):
+async def predict_message(payload: PredictPayload, db: Session = Depends(get_db)):
     """
     Endpoint que recebe uma mensagem do simulador, processa através do serviço de análise
     (inferência BERTimbau única, DetectorDeLinks, buffer de contexto e regras de limiar)

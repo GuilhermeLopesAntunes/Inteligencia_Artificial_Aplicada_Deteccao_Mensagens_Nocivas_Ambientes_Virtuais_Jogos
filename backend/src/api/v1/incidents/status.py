@@ -23,7 +23,7 @@ class StatusUpdate(BaseModel):
 
 
 @router.patch("/{incident_id}/status")
-def atualizar_status_incidente(
+async def atualizar_status_incidente(
     incident_id: str,
     status_update: StatusUpdate,
     guardian_id: str = Depends(get_current_guardian_id),

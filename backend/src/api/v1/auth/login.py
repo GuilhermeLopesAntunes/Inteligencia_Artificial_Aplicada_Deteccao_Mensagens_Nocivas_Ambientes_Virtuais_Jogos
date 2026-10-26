@@ -34,7 +34,8 @@ class TokenResponse(BaseModel):
 
 
 def authenticate_user(db: Session, email: str, password: str):
-    user = db.query(GuardianORM).filter(GuardianORM.email == email).first()
+    email_clean = email.strip().lower()
+    user = db.query(GuardianORM).filter(GuardianORM.email == email_clean).first()
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -43,7 +44,7 @@ def authenticate_user(db: Session, email: str, password: str):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login_for_access_token(form_data: LoginRequest, db: Session = Depends(get_db)):
+async def login_for_access_token(form_data: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.email, form_data.password)
     if not user:
         raise HTTPException(
@@ -63,7 +64,9 @@ def login_for_access_token(form_data: LoginRequest, db: Session = Depends(get_db
                 {
                     "id": link.dependent.id,
                     "name": link.dependent.name,
+                    "common_threshold": link.dependent.common_threshold,
                     "is_primary": link.is_primary,
+                    "safe_messages_count": link.dependent.safe_messages_count,
                 }
             )
 

@@ -10,7 +10,7 @@ router = APIRouter(prefix="/dependents")
 
 @router.get("")
 @router.get("/", include_in_schema=False)
-def list_dependents(
+async def list_dependents(
     guardian_id: str = Depends(get_current_guardian_id),
     db: Session = Depends(get_db),
 ):
