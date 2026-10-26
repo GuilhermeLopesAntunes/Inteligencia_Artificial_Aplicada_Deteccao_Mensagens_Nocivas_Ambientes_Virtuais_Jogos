@@ -4,9 +4,9 @@
  */
 
 const CONFIG = {
-  // Backend API endpoint for predictions
-  API_URL: "http://localhost:8000/api/v1/predict",
-  HEALTH_URL: "http://localhost:8000/",
+  // Backend API endpoint for predictions (127.0.0.1 avoids Windows IPv6 ::1 2s timeout)
+  API_URL: "http://127.0.0.1:8000/api/v1/predict",
+  HEALTH_URL: "http://127.0.0.1:8000/",
 
   // Pre-seeded dependents from backend seed (backend/src/seed.py)
   DEPENDENTS: [

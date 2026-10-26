@@ -180,6 +180,18 @@ function initDOMReferences() {
   DOM.apiStatusBadge = document.getElementById("api-status-badge");
   DOM.criticalFlashOverlay = document.getElementById("critical-flash-overlay");
 
+  // Guardian Auth Elements
+  DOM.guardianLoginBox = document.getElementById("guardian-login-box");
+  DOM.guardianLoggedBox = document.getElementById("guardian-logged-box");
+  DOM.guardianEmailInput = document.getElementById("input-guardian-email");
+  DOM.guardianPasswordInput = document.getElementById("input-guardian-password");
+  DOM.guardianLoginError = document.getElementById("guardian-login-error");
+  DOM.btnGuardianLogin = document.getElementById("btn-guardian-login");
+  DOM.guardianLoggedName = document.getElementById("guardian-logged-name");
+  DOM.guardianLoggedEmail = document.getElementById("guardian-logged-email");
+  DOM.btnRefreshDependents = document.getElementById("btn-refresh-dependents");
+  DOM.btnGuardianLogout = document.getElementById("btn-guardian-logout");
+
   // Audit Footer Elements
   DOM.auditHash = document.getElementById("audit-hash");
   DOM.btnCopyHash = document.getElementById("btn-copy-hash");
@@ -191,20 +203,140 @@ function initDOMReferences() {
   DOM.auditRole = document.getElementById("audit-role");
 }
 
-// Populate Dependents Dropdown (with dynamic sync from Backend SQLite)
+function getApiBaseUrl() {
+  return (CONFIG.HEALTH_URL || "http://127.0.0.1:8000/").replace(/\/+$/, "");
+}
+
+// Populate Dependents Dropdown
 function populateDependents() {
-  renderDependentsList(CONFIG.DEPENDENTS);
-  syncDependentsFromBackend();
+  const savedToken = sessionStorage.getItem("artemis_sim_token");
+  const savedGuardianRaw = sessionStorage.getItem("artemis_sim_guardian");
+  if (savedToken && savedGuardianRaw) {
+    try {
+      AppState.guardianToken = savedToken;
+      AppState.guardian = JSON.parse(savedGuardianRaw);
+      updateGuardianAuthUI(true);
+      syncDependentsFromBackend();
+      return;
+    } catch (_) {}
+  }
+  updateGuardianAuthUI(false);
+  renderDependentsList([]);
+}
+
+function updateGuardianAuthUI(isLoggedIn) {
+  if (!DOM.guardianLoginBox || !DOM.guardianLoggedBox) return;
+  if (isLoggedIn && AppState.guardian) {
+    DOM.guardianLoginBox.style.display = "none";
+    DOM.guardianLoggedBox.style.display = "block";
+    DOM.guardianLoggedName.textContent = AppState.guardian.name || "Responsável";
+    DOM.guardianLoggedEmail.textContent = AppState.guardian.email || "";
+  } else {
+    DOM.guardianLoginBox.style.display = "block";
+    DOM.guardianLoggedBox.style.display = "none";
+  }
+}
+
+async function loginGuardian() {
+  const email = (DOM.guardianEmailInput?.value || "").trim();
+  const password = DOM.guardianPasswordInput?.value || "";
+
+  if (!email || !password) {
+    showGuardianError("Informe o e-mail e a senha do responsável.");
+    return;
+  }
+
+  hideGuardianError();
+  DOM.btnGuardianLogin.disabled = true;
+  DOM.btnGuardianLogin.textContent = "Conectando...";
+
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!res.ok) {
+      let msg = "E-mail ou senha incorretos.";
+      try {
+        const err = await res.json();
+        if (err.detail) msg = err.detail;
+      } catch (_) {}
+      showGuardianError(msg);
+      return;
+    }
+
+    const data = await res.json();
+    AppState.guardianToken = data.access_token;
+    AppState.guardian = data.guardian || { name: email, email };
+
+    sessionStorage.setItem("artemis_sim_token", AppState.guardianToken);
+    sessionStorage.setItem("artemis_sim_guardian", JSON.stringify(AppState.guardian));
+
+    updateGuardianAuthUI(true);
+    await syncDependentsFromBackend();
+  } catch (err) {
+    showGuardianError("Erro ao conectar na API (127.0.0.1:8000).");
+  } finally {
+    DOM.btnGuardianLogin.disabled = false;
+    DOM.btnGuardianLogin.textContent = "Entrar para Filtrar Dependentes";
+  }
+}
+
+function logoutGuardian() {
+  AppState.guardianToken = null;
+  AppState.guardian = null;
+  sessionStorage.removeItem("artemis_sim_token");
+  sessionStorage.removeItem("artemis_sim_guardian");
+  updateGuardianAuthUI(false);
+  renderDependentsList([]);
+}
+
+function showGuardianError(msg) {
+  if (!DOM.guardianLoginError) return;
+  DOM.guardianLoginError.textContent = msg;
+  DOM.guardianLoginError.style.display = "block";
+}
+
+function hideGuardianError() {
+  if (!DOM.guardianLoginError) return;
+  DOM.guardianLoginError.textContent = "";
+  DOM.guardianLoginError.style.display = "none";
 }
 
 function renderDependentsList(dependentsList) {
-  if (!Array.isArray(dependentsList) || dependentsList.length === 0) return;
   const previousValue = AppState.dependentId;
   DOM.dependentSelect.innerHTML = "";
+
+  if (!Array.isArray(dependentsList) || dependentsList.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = AppState.guardianToken
+      ? "Nenhum dependente vinculado a esta conta"
+      : "Faça login acima para listar os dependentes...";
+    DOM.dependentSelect.appendChild(opt);
+    AppState.dependentId = "";
+    return;
+  }
+
   dependentsList.forEach((dep) => {
     const opt = document.createElement("option");
     opt.value = dep.id;
-    opt.textContent = `${dep.name} (${dep.id})`;
+    const roleTag =
+      dep.is_primary === true
+        ? "Primário"
+        : dep.is_primary === false
+        ? "Secundário"
+        : "";
+    const thresholdTag =
+      typeof dep.common_threshold === "number"
+        ? `L=${dep.common_threshold.toFixed(2)}`
+        : "";
+    const extra = [roleTag, thresholdTag].filter(Boolean).join(" • ");
+    opt.textContent = extra
+      ? `${dep.name} (${dep.id}) — ${extra}`
+      : `${dep.name} (${dep.id})`;
     DOM.dependentSelect.appendChild(opt);
   });
 
@@ -219,19 +351,24 @@ function renderDependentsList(dependentsList) {
 }
 
 async function syncDependentsFromBackend() {
+  if (!AppState.guardianToken) {
+    return;
+  }
   try {
-    const baseUrl = (CONFIG.HEALTH_URL || "http://localhost:8000/").replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/api/v1/dependents/simulator`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/v1/dependents`, {
       method: "GET",
+      headers: {
+        Authorization: `Bearer ${AppState.guardianToken}`,
+      },
     });
     if (res.ok) {
       const deps = await res.json();
-      if (Array.isArray(deps) && deps.length > 0) {
-        renderDependentsList(deps);
-      }
+      renderDependentsList(Array.isArray(deps) ? deps : []);
+    } else if (res.status === 401) {
+      logoutGuardian();
     }
   } catch (_) {
-    // Fallback silencioso para CONFIG.DEPENDENTS quando offline
+    // Mantém lista atual caso haja oscilação momentânea de rede
   }
 }
 
@@ -239,7 +376,7 @@ async function syncDependentsFromBackend() {
 async function checkBackendHealth() {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const res = await fetch(CONFIG.HEALTH_URL, {
       method: "GET",
@@ -406,6 +543,12 @@ function updateAuditFooter(payload, responseData, rttMs) {
 async function sendMessage() {
   const rawText = DOM.chatInput.value;
 
+  if (!AppState.dependentId) {
+    alert("Faça login com a conta do responsável na barra lateral e selecione o dependente monitorado antes de enviar.");
+    DOM.guardianEmailInput?.focus();
+    return;
+  }
+
   if (!rawText || rawText.trim().length === 0) {
     alert("Digite uma mensagem válida (não pode ser vazia ou apenas espaços).");
     DOM.chatInput.focus();
@@ -511,6 +654,27 @@ function escapeHtml(str) {
 
 // Event Listeners Registration
 function registerEventListeners() {
+  if (DOM.btnGuardianLogin) {
+    DOM.btnGuardianLogin.addEventListener("click", loginGuardian);
+  }
+
+  if (DOM.guardianPasswordInput) {
+    DOM.guardianPasswordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        loginGuardian();
+      }
+    });
+  }
+
+  if (DOM.btnRefreshDependents) {
+    DOM.btnRefreshDependents.addEventListener("click", syncDependentsFromBackend);
+  }
+
+  if (DOM.btnGuardianLogout) {
+    DOM.btnGuardianLogout.addEventListener("click", logoutGuardian);
+  }
+
   DOM.dependentSelect.addEventListener("change", (e) => {
     AppState.dependentId = e.target.value;
   });

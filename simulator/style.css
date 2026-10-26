@@ -223,6 +223,81 @@ body {
   border-color: var(--accent-purple);
 }
 
+.guardian-auth-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guardian-auth-card.logged {
+  border-color: rgba(16, 185, 129, 0.45);
+  background-color: rgba(16, 185, 129, 0.06);
+}
+
+.btn-auth-primary {
+  background-color: #0e58a8;
+  color: #ffffff;
+  border: none;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.18s ease;
+}
+
+.btn-auth-primary:hover {
+  background-color: #1269c7;
+}
+
+.btn-auth-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-error-msg {
+  font-size: 0.76rem;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.logged-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.logged-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.logged-name {
+  font-size: 0.92rem;
+  color: var(--color-safe);
+}
+
+.logged-email {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.logged-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.logged-actions .btn-secondary {
+  flex: 1;
+}
+
 .checkbox-group {
   display: flex;
   align-items: center;
