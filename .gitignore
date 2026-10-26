@@ -11,3 +11,16 @@ scripts/datasets/bertimbau_modelo_balanceado/
 scripts/datasets/modelo_tcc_final/
 scripts/datasets/modelo_tcc_balanceado_final/
 
+
+# Banco SQLite (dados de menores) e modelos montados via volume
+backend/data/
+*.db
+models/
+scripts/modelo-final-tcc/
+*.safetensors
+*.bin
+.obsidian/
+venv/
+.env
+frontend/build/
+scripts/.Trash-*/
