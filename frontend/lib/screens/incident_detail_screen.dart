@@ -252,15 +252,19 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '$labelPrefix • ${msg.isFromMinor ? "Menor (${msg.senderId})" : "Participante (${msg.senderId})"}',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+              Expanded(
+                child: Text(
+                  '$labelPrefix • ${msg.isFromMinor ? "Menor (${msg.senderId})" : "Participante (${msg.senderId})"}',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 _formatDateTime(msg.timestamp),
                 style: TextStyle(fontSize: 11, color: Colors.grey[600]),
@@ -443,15 +447,19 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'Mensagem Principal • Remetente: ${_incident!.mainMessageSenderId}',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF991B1B),
+                                    Expanded(
+                                      child: Text(
+                                        'Mensagem Principal • Remetente: ${_incident!.mainMessageSenderId}',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF991B1B),
+                                        ),
                                       ),
                                     ),
+                                    const SizedBox(width: 8),
                                     Text(
                                       _formatDateTime(_incident!.createdAt),
                                       style: const TextStyle(

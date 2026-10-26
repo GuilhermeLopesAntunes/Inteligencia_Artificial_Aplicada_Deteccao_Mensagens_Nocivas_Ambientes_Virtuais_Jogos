@@ -5,8 +5,11 @@ import 'screens/feed_screen.dart';
 import 'screens/incident_detail_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'services/notification_service.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  NotificationService().init();
   runApp(const ArtemisApp());
 }
 

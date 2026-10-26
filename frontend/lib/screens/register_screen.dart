@@ -19,6 +19,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   final MockApiService _apiService = MockApiService();
   bool _useInviteCode = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -103,6 +105,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required String label,
     required IconData icon,
     String? hint,
+    Widget? suffixIcon,
   }) {
     return InputDecoration(
       labelText: label,
@@ -123,6 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         borderSide: const BorderSide(color: Color(0xFF0E58A8), width: 2),
       ),
       prefixIcon: Icon(icon, color: Colors.black),
+      suffixIcon: suffixIcon,
     );
   }
 
@@ -194,8 +198,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: _buildInputDecoration(
                   label: 'Crie uma senha',
                   icon: Icons.lock_outline,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.black,
+                    ),
+                    tooltip: _obscurePassword ? 'Mostrar senha' : 'Ocultar senha',
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  ),
                 ),
-                obscureText: true,
+                obscureText: _obscurePassword,
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
@@ -204,8 +220,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: _buildInputDecoration(
                   label: 'Confirme sua senha',
                   icon: Icons.lock,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureConfirmPassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                      color: Colors.black,
+                    ),
+                    tooltip: _obscureConfirmPassword
+                        ? 'Mostrar senha'
+                        : 'Ocultar senha',
+                    onPressed: () {
+                      setState(() {
+                        _obscureConfirmPassword = !_obscureConfirmPassword;
+                      });
+                    },
+                  ),
                 ),
-                obscureText: true,
+                obscureText: _obscureConfirmPassword,
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 20),

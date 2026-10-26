@@ -131,13 +131,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         title: const Text('Adicionar Dependente'),
-        content: TextField(
-          controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Nome do filho(a)',
-            prefixIcon: Icon(Icons.child_care, color: Colors.black),
+        content: SingleChildScrollView(
+          child: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              labelText: 'Nome do filho(a)',
+              prefixIcon: Icon(Icons.child_care, color: Colors.black),
+            ),
+            autofocus: true,
           ),
-          autofocus: true,
         ),
         actions: [
           TextButton(
@@ -230,6 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             ?.copyWith(fontWeight: FontWeight.bold),
                                       ),
                                     ),
+                                    const SizedBox(width: 8),
                                     Chip(
                                       avatar: const Icon(
                                         Icons.shield_outlined,

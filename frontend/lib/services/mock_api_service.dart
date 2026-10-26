@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../models/dependent.dart';
 import '../models/incident_summary.dart';
 
@@ -11,22 +15,71 @@ class MockApiService {
   factory MockApiService() => _instance;
   MockApiService._internal();
 
-  final List<Dependent> _mockDependents = [
-    Dependent(
-      id: 'dep-001',
-      name: 'Lucas',
-      commonThreshold: 0.50,
-      isPrimary: true,
-      safeMessagesCount: 15,
-    ),
-    Dependent(
-      id: 'dep-002',
-      name: 'Ana',
-      commonThreshold: 0.65,
-      isPrimary: true,
-      safeMessagesCount: 8,
-    ),
-  ];
+  final Map<String, List<Dependent>> _dependentsByEmail = {
+    'responsavel@exemplo.com': [
+      Dependent(
+        id: 'dep-001',
+        name: 'Lucas',
+        commonThreshold: 0.50,
+        isPrimary: true,
+        safeMessagesCount: 15,
+      ),
+      Dependent(
+        id: 'dep-002',
+        name: 'Ana',
+        commonThreshold: 0.65,
+        isPrimary: true,
+        safeMessagesCount: 8,
+      ),
+    ],
+    'test@exemplo.com': [
+      Dependent(
+        id: 'dep-001',
+        name: 'Lucas',
+        commonThreshold: 0.50,
+        isPrimary: true,
+        safeMessagesCount: 15,
+      ),
+      Dependent(
+        id: 'dep-002',
+        name: 'Ana',
+        commonThreshold: 0.65,
+        isPrimary: true,
+        safeMessagesCount: 8,
+      ),
+    ],
+    'joao@exemplo.com': [
+      Dependent(
+        id: 'dep-001',
+        name: 'Lucas',
+        commonThreshold: 0.50,
+        isPrimary: false,
+        safeMessagesCount: 15,
+      ),
+    ],
+  };
+
+  List<Dependent> get _currentDependents =>
+      _dependentsByEmail.putIfAbsent(_currentUserEmail, () => <Dependent>[]);
+
+  Dependent? _findDependentAnywhere(String id) {
+    for (final list in _dependentsByEmail.values) {
+      for (final dep in list) {
+        if (dep.id == id) return dep;
+      }
+    }
+    return null;
+  }
+
+  int get _totalUniqueDependentsCount {
+    final ids = <String>{};
+    for (final list in _dependentsByEmail.values) {
+      for (final dep in list) {
+        ids.add(dep.id);
+      }
+    }
+    return ids.length;
+  }
 
   final List<IncidentSummary> _mockIncidents = [
     IncidentSummary(
@@ -157,24 +210,298 @@ class MockApiService {
     'joao@exemplo.com': {'password': 'senha456', 'name': 'João'},
   };
 
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   String? _activeToken;
+  String? _resolvedBaseUrl;
   String _currentGuardianId = 'resp-001';
   String _currentUserEmail = 'responsavel@exemplo.com';
   String _currentUserName = 'Maria';
+  final Set<String> _knownIncidentIds = <String>{};
 
   String? get activeToken => _activeToken;
+  String? get resolvedBaseUrl => _resolvedBaseUrl;
   String get currentGuardianId => _currentGuardianId;
   String get currentUserName => _currentUserName;
   bool get isAuthenticated => _activeToken != null;
+  bool get isUsingRealBackend =>
+      _activeToken != null && !_activeToken!.startsWith('mock-');
+
+  String? get websocketUrl {
+    if (!isUsingRealBackend || _activeToken == null) return null;
+    final base = _resolvedBaseUrl ?? 'http://127.0.0.1:8000';
+    final wsBase = base.replaceFirst('https://', 'wss://').replaceFirst('http://', 'ws://');
+    return '$wsBase/ws?token=$_activeToken';
+  }
+
+  Future<List<File>> _getSessionFiles() async {
+    if (kIsWeb) return const <File>[];
+    final files = <File>[];
+    try {
+      final supportDir = await getApplicationSupportDirectory();
+      files.add(File('${supportDir.path}/artemis_session.json'));
+    } catch (_) {}
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      files.add(File('${docDir.path}/artemis_session.json'));
+    } catch (_) {}
+    return files;
+  }
+
+  Future<void> saveKnownIncidentIds(Iterable<String> ids) async {
+    _knownIncidentIds.addAll(ids);
+    await _persistSession();
+  }
+
+  Future<void> _persistSession() async {
+    if (_activeToken == null) return;
+    final sessionPayload = jsonEncode({
+      'token': _activeToken,
+      'guardian_id': _currentGuardianId,
+      'email': _currentUserEmail,
+      'name': _currentUserName,
+      'base_url': _resolvedBaseUrl ?? 'http://127.0.0.1:8000',
+      'known_incident_ids': _knownIncidentIds.toList(),
+    });
+
+    try {
+      final files = await _getSessionFiles();
+      for (final file in files) {
+        await file.writeAsString(sessionPayload, flush: true);
+      }
+    } catch (_) {}
+
+    try {
+      await _storage.write(key: 'artemis_jwt_token', value: _activeToken);
+      await _storage.write(key: 'artemis_guardian_id', value: _currentGuardianId);
+      await _storage.write(key: 'artemis_user_email', value: _currentUserEmail);
+      await _storage.write(key: 'artemis_user_name', value: _currentUserName);
+      if (_resolvedBaseUrl != null) {
+        await _storage.write(key: 'artemis_base_url', value: _resolvedBaseUrl);
+      }
+    } catch (_) {}
+  }
+
+  Future<bool> restoreSession() async {
+    if (_activeToken != null && _activeToken!.isNotEmpty) return true;
+
+    try {
+      final files = await _getSessionFiles();
+      for (final file in files) {
+        if (await file.exists()) {
+          final raw = await file.readAsString();
+          if (raw.trim().isNotEmpty) {
+            final map = jsonDecode(raw) as Map<String, dynamic>;
+            final token = map['token']?.toString();
+            if (token != null && token.isNotEmpty && !token.startsWith('mock-')) {
+              _activeToken = token;
+              _currentGuardianId =
+                  (map['guardian_id'] ?? _currentGuardianId).toString();
+              _currentUserEmail =
+                  (map['email'] ?? _currentUserEmail).toString().toLowerCase();
+              _currentUserName = (map['name'] ?? _currentUserName).toString();
+              final url = map['base_url']?.toString();
+              if (url != null && url.isNotEmpty) {
+                _resolvedBaseUrl = url;
+              }
+              final rawIds = map['known_incident_ids'];
+              if (rawIds is List) {
+                _knownIncidentIds.addAll(rawIds.map((e) => e.toString()));
+              }
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (_activeToken == null || _activeToken!.isEmpty) {
+      try {
+        final savedToken = await _storage.read(key: 'artemis_jwt_token');
+        if (savedToken != null && savedToken.isNotEmpty && !savedToken.startsWith('mock-')) {
+          _activeToken = savedToken;
+          _currentGuardianId =
+              (await _storage.read(key: 'artemis_guardian_id')) ??
+                  _currentGuardianId;
+          _currentUserEmail =
+              (await _storage.read(key: 'artemis_user_email')) ??
+                  _currentUserEmail;
+          _currentUserName =
+              (await _storage.read(key: 'artemis_user_name')) ??
+                  _currentUserName;
+          final savedUrl = await _storage.read(key: 'artemis_base_url');
+          if (savedUrl != null && savedUrl.isNotEmpty) {
+            _resolvedBaseUrl = savedUrl;
+          }
+          await _persistSession();
+        }
+      } catch (_) {}
+    }
+
+    if (_activeToken == null || _activeToken!.isEmpty) {
+      return false;
+    }
+
+    // Mantém a sessão logada permanentemente até o usuário clicar em Logout.
+    // Sincroniza em background caso o servidor esteja acessível.
+    if (!_activeToken!.startsWith('mock-')) {
+      _getOrderedBaseUrls().then((urls) async {
+        for (final baseUrl in urls) {
+          try {
+            final res = await http
+                .get(
+                  Uri.parse('$baseUrl/api/v1/auth/me'),
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer $_activeToken',
+                  },
+                )
+                .timeout(const Duration(milliseconds: 2500));
+            if (res.statusCode == 200) {
+              _resolvedBaseUrl = baseUrl;
+              final data = jsonDecode(res.body) as Map<String, dynamic>;
+              _currentGuardianId = (data['id'] ?? _currentGuardianId).toString();
+              _currentUserName = (data['name'] ?? _currentUserName).toString();
+              _currentUserEmail =
+                  (data['email'] ?? _currentUserEmail).toString().toLowerCase();
+              await _persistSession();
+              break;
+            }
+          } catch (_) {}
+        }
+      });
+    }
+
+    return true;
+  }
 
   void logout() {
     _activeToken = null;
+    _resolvedBaseUrl = null;
+    _knownIncidentIds.clear();
+    _getSessionFiles().then((files) async {
+      for (final file in files) {
+        try {
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {}
+      }
+    });
+    try {
+      _storage.delete(key: 'artemis_jwt_token');
+      _storage.delete(key: 'artemis_guardian_id');
+      _storage.delete(key: 'artemis_user_email');
+      _storage.delete(key: 'artemis_user_name');
+      _storage.delete(key: 'artemis_base_url');
+    } catch (_) {}
   }
 
-  List<String> get _candidateBaseUrls => const [
-        'http://localhost:8000',
-        'http://10.0.2.2:8000',
-      ];
+  List<String> get _candidateBaseUrls {
+    const envUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+    final urls = <String>[
+      if (envUrl.isNotEmpty) envUrl,
+      if (_resolvedBaseUrl != null) _resolvedBaseUrl!,
+      'http://127.0.0.1:8000',
+      'http://192.168.1.10:8000',
+      'http://192.168.1.8:8000',
+      'http://10.69.210.131:8000',
+      'http://10.0.2.2:8000',
+      'http://localhost:8000',
+    ];
+    return urls.toSet().toList();
+  }
+
+  /// Descobre sem lançar exceções não tratadas qual URL do Backend FastAPI está acessível
+  /// (USB adb reverse 127.0.0.1, Wi-Fi atual 10.69.210.131, Wi-Fi 192.168.1.8 ou Emulador 10.0.2.2).
+  /// Se a URL em cache (_resolvedBaseUrl) mudou de rede e não responde mais, redescobre automaticamente.
+  Future<List<String>> _getOrderedBaseUrls({bool forceReprobe = false}) async {
+    if (!forceReprobe && _resolvedBaseUrl != null) {
+      try {
+        final check = await http
+            .get(Uri.parse('$_resolvedBaseUrl/'))
+            .timeout(const Duration(milliseconds: 900));
+        if (check.statusCode == 200) {
+          return <String>[_resolvedBaseUrl!, ..._candidateBaseUrls.where((u) => u != _resolvedBaseUrl)];
+        }
+      } catch (_) {
+        _resolvedBaseUrl = null;
+      }
+    }
+    final candidates = _candidateBaseUrls;
+    final completer = Completer<String?>();
+    int remaining = candidates.length;
+
+    for (final baseUrl in candidates) {
+      http
+          .get(Uri.parse('$baseUrl/'))
+          .timeout(const Duration(milliseconds: 1500))
+          .then((res) {
+        if (res.statusCode == 200 && !completer.isCompleted) {
+          completer.complete(baseUrl);
+        } else {
+          remaining--;
+          if (remaining == 0 && !completer.isCompleted) {
+            completer.complete(null);
+          }
+        }
+      }).catchError((_) {
+        remaining--;
+        if (remaining == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+    }
+
+    final winner = await completer.future;
+    if (winner != null) {
+      _resolvedBaseUrl = winner;
+      return <String>[winner, ...candidates.where((u) => u != winner)];
+    }
+    return candidates;
+  }
+
+  String _extractErrorDetail(String responseBody, String fallback) {
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is Map<String, dynamic>) {
+        final detail = decoded['detail'];
+        if (detail is String && detail.isNotEmpty) {
+          return detail;
+        }
+        if (detail is List && detail.isNotEmpty) {
+          final first = detail.first;
+          if (first is Map && first['msg'] != null) {
+            return first['msg'].toString();
+          }
+        }
+      }
+    } catch (_) {}
+    return fallback;
+  }
+
+  void _syncGuardianPayload(Map<String, dynamic> data, String fallbackEmail, String fallbackName) {
+    _currentUserEmail = fallbackEmail;
+    _currentUserName = fallbackName;
+    final guardian = data['guardian'] as Map<String, dynamic>?;
+    if (guardian != null) {
+      _currentGuardianId = (guardian['id'] ?? 'resp-001').toString();
+      _currentUserName = (guardian['name'] ?? fallbackName).toString();
+      _currentUserEmail = (guardian['email'] ?? fallbackEmail).toString().toLowerCase();
+
+      final rawDeps = guardian['dependents'];
+      if (rawDeps is List) {
+        _dependentsByEmail[_currentUserEmail] = rawDeps
+            .whereType<Map<String, dynamic>>()
+            .map(Dependent.fromJson)
+            .toList();
+        return;
+      }
+    }
+    final singleDep = data['dependent'];
+    if (singleDep is Map<String, dynamic>) {
+      _dependentsByEmail[_currentUserEmail] = [Dependent.fromJson(singleDep)];
+    }
+  }
 
   Future<Map<String, dynamic>> register({
     required String name,
@@ -192,7 +519,8 @@ class MockApiService {
       throw Exception('Informe o nome do filho(a) ou um código de convite.');
     }
 
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         final response = await http
             .post(
@@ -206,24 +534,31 @@ class MockApiService {
                 'invite_code': cleanInvite.isNotEmpty ? cleanInvite : null,
               }),
             )
-            .timeout(const Duration(milliseconds: 900));
+            .timeout(const Duration(milliseconds: 3000));
         if (response.statusCode == 201 || response.statusCode == 200) {
+          _resolvedBaseUrl = baseUrl;
           final data = jsonDecode(response.body) as Map<String, dynamic>;
           _activeToken = data['access_token']?.toString();
-          final guardian = data['guardian'] as Map<String, dynamic>?;
-          if (guardian != null) {
-            _currentGuardianId = (guardian['id'] ?? 'resp-001').toString();
-            _currentUserName = (guardian['name'] ?? cleanName).toString();
-            _currentUserEmail = cleanEmail;
-          }
-          break;
-        } else if (response.statusCode == 400 || response.statusCode == 404) {
-          final err = jsonDecode(response.body);
-          throw Exception(err['detail'] ?? 'Falha no cadastro');
+          _syncGuardianPayload(data, cleanEmail, cleanName);
+          _registeredUsers[_currentUserEmail] = {
+            'password': password,
+            'name': _currentUserName,
+          };
+          await _persistSession();
+          return data;
+        } else if (response.statusCode >= 400 && response.statusCode < 500) {
+          _resolvedBaseUrl = baseUrl;
+          throw Exception(_extractErrorDetail(response.body, 'Falha ao registrar conta na API'));
         }
+      } on TimeoutException {
+        continue;
+      } on http.ClientException {
+        continue;
       } catch (e) {
-        if (e.toString().contains('Este e-mail') ||
-            e.toString().contains('Código de convite')) {
+        if (e is Exception &&
+            !e.toString().contains('SocketException') &&
+            !e.toString().contains('Connection refused') &&
+            !e.toString().contains('Failed host lookup')) {
           rethrow;
         }
       }
@@ -237,34 +572,35 @@ class MockApiService {
     };
     _currentUserEmail = cleanEmail;
     _currentUserName = cleanName;
-    _activeToken ??= 'mock-jwt-token-$cleanEmail';
+    _activeToken = 'mock-jwt-token-$cleanEmail';
 
+    final userDeps = <Dependent>[];
     if (cleanDepName.isNotEmpty) {
       final newDepId =
-          'dep-${(_mockDependents.length + 1).toString().padLeft(3, '0')}';
-      final newDep = Dependent(
-        id: newDepId,
-        name: cleanDepName,
-        commonThreshold: 0.65,
-        isPrimary: true,
-        safeMessagesCount: 0,
+          'dep-${(_totalUniqueDependentsCount + 1).toString().padLeft(3, '0')}';
+      userDeps.add(
+        Dependent(
+          id: newDepId,
+          name: cleanDepName,
+          commonThreshold: 0.65,
+          isPrimary: true,
+          safeMessagesCount: 0,
+        ),
       );
-      _mockDependents.insert(0, newDep);
     } else if (cleanInvite.isNotEmpty) {
-      final existingIndex =
-          _mockDependents.indexWhere((d) => d.id == cleanInvite);
-      if (existingIndex == -1) {
-        _mockDependents.add(
-          Dependent(
-            id: cleanInvite,
-            name: 'Dependente ($cleanInvite)',
-            commonThreshold: 0.65,
-            isPrimary: false,
-            safeMessagesCount: 0,
-          ),
-        );
-      }
+      final existing = _findDependentAnywhere(cleanInvite);
+      userDeps.add(
+        Dependent(
+          id: cleanInvite,
+          name: existing?.name ?? 'Dependente ($cleanInvite)',
+          commonThreshold: existing?.commonThreshold ?? 0.65,
+          isPrimary: false,
+          safeMessagesCount: existing?.safeMessagesCount ?? 0,
+        ),
+      );
     }
+    _dependentsByEmail[cleanEmail] = userDeps;
+    await _persistSession();
 
     return {
       'access_token': _activeToken,
@@ -282,7 +618,8 @@ class MockApiService {
       throw Exception('Informe o nome do dependente.');
     }
 
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
           final res = await http
@@ -297,32 +634,46 @@ class MockApiService {
                   'common_threshold': commonThreshold,
                 }),
               )
-              .timeout(const Duration(milliseconds: 900));
+              .timeout(const Duration(milliseconds: 3000));
           if (res.statusCode == 201 || res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
             final dep = Dependent.fromJson(jsonDecode(res.body));
-            _mockDependents.add(dep);
+            _currentDependents.add(dep);
             return dep;
+          } else if (res.statusCode >= 400 && res.statusCode < 500) {
+            throw Exception(_extractErrorDetail(res.body, 'Erro ao criar dependente'));
           }
         }
-      } catch (_) {}
+      } on TimeoutException {
+        continue;
+      } on http.ClientException {
+        continue;
+      } catch (e) {
+        if (e is Exception &&
+            !e.toString().contains('SocketException') &&
+            !e.toString().contains('Connection refused')) {
+          rethrow;
+        }
+      }
     }
 
     await Future.delayed(const Duration(milliseconds: 250));
     final newDep = Dependent(
-      id: 'dep-${(_mockDependents.length + 1).toString().padLeft(3, '0')}',
+      id: 'dep-${(_totalUniqueDependentsCount + 1).toString().padLeft(3, '0')}',
       name: cleanName,
       commonThreshold: commonThreshold,
       isPrimary: true,
       safeMessagesCount: 0,
     );
-    _mockDependents.add(newDep);
+    _currentDependents.add(newDep);
     return newDep;
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         final res = await http
             .post(
@@ -330,19 +681,56 @@ class MockApiService {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'email': cleanEmail, 'password': password}),
             )
-            .timeout(const Duration(milliseconds: 800));
+            .timeout(const Duration(milliseconds: 3000));
         if (res.statusCode == 200) {
+          _resolvedBaseUrl = baseUrl;
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           _activeToken = data['access_token']?.toString();
-          final guardian = data['guardian'] as Map<String, dynamic>?;
-          if (guardian != null) {
-            _currentGuardianId = (guardian['id'] ?? 'resp-001').toString();
-            _currentUserName = (guardian['name'] ?? 'Responsável').toString();
-            _currentUserEmail = cleanEmail;
-          }
+          _syncGuardianPayload(data, cleanEmail, 'Responsável');
+          await _persistSession();
           return data;
+        } else if (res.statusCode == 401 || res.statusCode == 422) {
+          _resolvedBaseUrl = baseUrl;
+          // Se a conta havia sido criada localmente enquanto o celular estava offline,
+          // sincroniza automaticamente com /api/v1/auth/register no Backend!
+          final localUser = _registeredUsers[cleanEmail];
+          if (localUser != null && localUser['password'] == password) {
+            final localDeps = _dependentsByEmail[cleanEmail];
+            final firstDepName = (localDeps != null && localDeps.isNotEmpty)
+                ? localDeps.first.name
+                : 'Dependente';
+            final regRes = await http
+                .post(
+                  Uri.parse('$baseUrl/api/v1/auth/register'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    'name': localUser['name'] ?? 'Responsável',
+                    'email': cleanEmail,
+                    'password': password,
+                    'dependent_name': firstDepName,
+                  }),
+                )
+                .timeout(const Duration(milliseconds: 3000));
+            if (regRes.statusCode == 201 || regRes.statusCode == 200) {
+              final data = jsonDecode(regRes.body) as Map<String, dynamic>;
+              _activeToken = data['access_token']?.toString();
+              _syncGuardianPayload(data, cleanEmail, localUser['name'] ?? 'Responsável');
+              await _persistSession();
+              return data;
+            }
+          }
+          throw Exception(_extractErrorDetail(res.body, 'E-mail ou senha incorretos'));
         }
-      } catch (_) {}
+      } on TimeoutException {
+        continue;
+      } on http.ClientException {
+        continue;
+      } catch (e) {
+        if (e.toString().contains('E-mail ou senha incorretos') ||
+            e.toString().contains('incorretos')) {
+          rethrow;
+        }
+      }
     }
 
     await Future.delayed(const Duration(milliseconds: 300));
@@ -352,6 +740,7 @@ class MockApiService {
       _currentUserEmail = cleanEmail;
       _currentUserName = localUser['name'] ?? 'Responsável';
       _activeToken = 'mock-jwt-token-$cleanEmail';
+      await _persistSession();
       return {
         'access_token': _activeToken,
         'token_type': 'Bearer',
@@ -363,6 +752,31 @@ class MockApiService {
   }
 
   Future<Map<String, dynamic>> getMe() async {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
+      try {
+        if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
+          final res = await http
+              .get(
+                Uri.parse('$baseUrl/api/v1/auth/me'),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $_activeToken',
+                },
+              )
+              .timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
+            final data = jsonDecode(res.body) as Map<String, dynamic>;
+            _currentGuardianId = (data['id'] ?? _currentGuardianId).toString();
+            _currentUserName = (data['name'] ?? _currentUserName).toString();
+            _currentUserEmail = (data['email'] ?? _currentUserEmail).toString();
+            return data;
+          }
+        }
+      } catch (_) {}
+    }
+
     await Future.delayed(const Duration(milliseconds: 150));
     return {
       'id': _currentGuardianId,
@@ -373,7 +787,8 @@ class MockApiService {
   }
 
   Future<List<Dependent>> getDependents() async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
           final res = await http
@@ -384,31 +799,29 @@ class MockApiService {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 800));
+              .timeout(const Duration(milliseconds: 2500));
           if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
             final list = (jsonDecode(res.body) as List<dynamic>)
                 .map((e) => Dependent.fromJson(e as Map<String, dynamic>))
                 .toList();
-            if (list.isNotEmpty) {
-              _mockDependents
-                ..clear()
-                ..addAll(list);
-              return List.unmodifiable(_mockDependents);
-            }
+            _dependentsByEmail[_currentUserEmail] = list;
+            return List.unmodifiable(list);
           }
         }
       } catch (_) {}
     }
 
     await Future.delayed(const Duration(milliseconds: 200));
-    return List.unmodifiable(_mockDependents);
+    return List.unmodifiable(_currentDependents);
   }
 
   Future<Dependent> updateThreshold(String dependentId, double threshold) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
-          await http
+          final res = await http
               .patch(
                 Uri.parse('$baseUrl/api/v1/dependents/$dependentId/threshold'),
                 headers: {
@@ -417,21 +830,31 @@ class MockApiService {
                 },
                 body: jsonEncode({'common_threshold': threshold}),
               )
-              .timeout(const Duration(milliseconds: 800));
-          break;
+              .timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
+            break;
+          } else if (res.statusCode >= 400 && res.statusCode < 500) {
+            throw Exception(_extractErrorDetail(res.body, 'Falha ao atualizar limiar'));
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        if (e.toString().contains('responsável primário') ||
+            e.toString().contains('Falha ao atualizar')) {
+          rethrow;
+        }
+      }
     }
 
     await Future.delayed(const Duration(milliseconds: 200));
 
-    final dependentIndex =
-        _mockDependents.indexWhere((d) => d.id == dependentId);
+    final deps = _currentDependents;
+    final dependentIndex = deps.indexWhere((d) => d.id == dependentId);
     if (dependentIndex != -1) {
-      final updated = _mockDependents[dependentIndex].copyWith(
+      final updated = deps[dependentIndex].copyWith(
         commonThreshold: threshold,
       );
-      _mockDependents[dependentIndex] = updated;
+      deps[dependentIndex] = updated;
       return updated;
     } else {
       throw Exception('Dependent not found');
@@ -445,10 +868,14 @@ class MockApiService {
     int limit = 50,
     int offset = 0,
   }) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
-          final queryParams = <String, String>{};
+          final queryParams = <String, String>{
+            'limit': limit.toString(),
+            'offset': offset.toString(),
+          };
           if (dependentId != null && dependentId.isNotEmpty) {
             queryParams['dependent_id'] = dependentId;
           }
@@ -456,7 +883,7 @@ class MockApiService {
           if (category != null) queryParams['category'] = category;
 
           final uri = Uri.parse('$baseUrl/api/v1/incidents')
-              .replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+              .replace(queryParameters: queryParams);
           final res = await http
               .get(
                 uri,
@@ -465,8 +892,9 @@ class MockApiService {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 800));
+              .timeout(const Duration(milliseconds: 2500));
           if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
             final body = jsonDecode(res.body);
             final rawItems = body is Map<String, dynamic>
                 ? (body['items'] as List<dynamic>? ?? [])
@@ -481,7 +909,10 @@ class MockApiService {
 
     await Future.delayed(const Duration(milliseconds: 250));
 
-    var filtered = List<IncidentSummary>.from(_mockIncidents);
+    final allowedDepIds = _currentDependents.map((d) => d.id).toSet();
+    var filtered = _mockIncidents
+        .where((inc) => allowedDepIds.contains(inc.dependentId))
+        .toList();
 
     if (dependentId != null && dependentId.isNotEmpty) {
       filtered =
@@ -500,7 +931,8 @@ class MockApiService {
   }
 
   Future<IncidentSummary> getIncident(String incidentId) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
           final res = await http
@@ -511,8 +943,9 @@ class MockApiService {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 800));
+              .timeout(const Duration(milliseconds: 2500));
           if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
             return IncidentSummary.fromJson(
               jsonDecode(res.body) as Map<String, dynamic>,
             );
@@ -530,10 +963,11 @@ class MockApiService {
   }
 
   Future<void> viewIncident(String incidentId) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
-          await http
+          final res = await http
               .post(
                 Uri.parse('$baseUrl/api/v1/incidents/$incidentId/view'),
                 headers: {
@@ -541,8 +975,11 @@ class MockApiService {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 800));
-          break;
+              .timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
+            return;
+          }
         }
       } catch (_) {}
     }
@@ -573,10 +1010,11 @@ class MockApiService {
     String status, {
     String? note,
   }) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
-          await http
+          final res = await http
               .patch(
                 Uri.parse('$baseUrl/api/v1/incidents/$incidentId/status'),
                 headers: {
@@ -588,10 +1026,19 @@ class MockApiService {
                   if (note != null) 'note': note,
                 }),
               )
-              .timeout(const Duration(milliseconds: 800));
-          break;
+              .timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
+            return;
+          } else if (res.statusCode >= 400 && res.statusCode < 500) {
+            throw Exception(_extractErrorDetail(res.body, 'Transição de status inválida'));
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        if (e.toString().contains('Transição')) {
+          rethrow;
+        }
+      }
     }
 
     await Future.delayed(const Duration(milliseconds: 200));
@@ -628,7 +1075,8 @@ class MockApiService {
   }
 
   Future<http.Response> getIncidentReport(String incidentId) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
           final res = await http
@@ -638,8 +1086,9 @@ class MockApiService {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 1200));
+              .timeout(const Duration(milliseconds: 3000));
           if (res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
             return res;
           }
         }
@@ -656,20 +1105,31 @@ class MockApiService {
   }
 
   Future<void> deleteIncident(String incidentId) async {
-    for (final baseUrl in _candidateBaseUrls) {
+    final urls = await _getOrderedBaseUrls();
+    for (final baseUrl in urls) {
       try {
         if (_activeToken != null && !_activeToken!.startsWith('mock-')) {
-          await http
+          final res = await http
               .delete(
                 Uri.parse('$baseUrl/api/v1/incidents/$incidentId'),
                 headers: {
                   'Authorization': 'Bearer $_activeToken',
                 },
               )
-              .timeout(const Duration(milliseconds: 800));
-          break;
+              .timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 204 || res.statusCode == 200) {
+            _resolvedBaseUrl = baseUrl;
+            _mockIncidents.removeWhere((inc) => inc.id == incidentId);
+            return;
+          } else if (res.statusCode >= 400 && res.statusCode < 500) {
+            throw Exception(_extractErrorDetail(res.body, 'Apenas o responsável primário pode excluir o incidente'));
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        if (e.toString().contains('responsável primário')) {
+          rethrow;
+        }
+      }
     }
 
     await Future.delayed(const Duration(milliseconds: 200));

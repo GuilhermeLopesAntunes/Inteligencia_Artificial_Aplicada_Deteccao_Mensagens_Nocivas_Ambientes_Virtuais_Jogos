@@ -15,15 +15,21 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      final isAuth = MockApiService().isAuthenticated;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => isAuth ? const FeedScreen() : const LoginScreen(),
-        ),
-      );
-    });
+    _bootstrapSession();
+  }
+
+  Future<void> _bootstrapSession() async {
+    final results = await Future.wait<dynamic>([
+      MockApiService().restoreSession(),
+      Future<void>.delayed(const Duration(milliseconds: 1200)),
+    ]);
+    if (!mounted) return;
+    final bool isAuth = results.first == true;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => isAuth ? const FeedScreen() : const LoginScreen(),
+      ),
+    );
   }
 
   @override

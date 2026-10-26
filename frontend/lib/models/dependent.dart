@@ -15,11 +15,11 @@ class Dependent {
 
   factory Dependent.fromJson(Map<String, dynamic> json) {
     return Dependent(
-      id: json['id'],
-      name: json['name'],
-      commonThreshold: json['common_threshold'].toDouble(),
-      isPrimary: json['is_primary'],
-      safeMessagesCount: json['safe_messages_count'],
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? 'Dependente').toString(),
+      commonThreshold: ((json['common_threshold'] ?? 0.50) as num).toDouble(),
+      isPrimary: json['is_primary'] != false,
+      safeMessagesCount: ((json['safe_messages_count'] ?? 0) as num).toInt(),
     );
   }
 

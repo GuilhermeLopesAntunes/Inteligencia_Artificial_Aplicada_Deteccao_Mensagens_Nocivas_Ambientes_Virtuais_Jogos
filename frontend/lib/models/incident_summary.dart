@@ -114,7 +114,8 @@ class IncidentSummary {
   }) : mainMessageText = mainMessageText ?? preview;
 
   factory IncidentSummary.fromJson(Map<String, dynamic> json) {
-    final mainMsg = json['main_message'] as Map<String, dynamic>?;
+    final mainMsg =
+        (json['message'] ?? json['main_message']) as Map<String, dynamic>?;
     final rawPreview = (json['preview'] ?? mainMsg?['text'] ?? '').toString();
     final rawIntegrityMismatch = json['integrity_mismatch'] == true ||
         (json.containsKey('integrity_valid') && json['integrity_valid'] == false);
@@ -151,7 +152,7 @@ class IncidentSummary {
       integrityMismatch: rawIntegrityMismatch,
       escalated: json['escalated'] == true,
       preview: rawPreview,
-      createdAt: (json['created_at'] ?? '').toString(),
+      createdAt: (json['created_at'] ?? mainMsg?['timestamp'] ?? '').toString(),
       roomType: (json['room_type'] ?? 'conversa').toString(),
       mainMessageText: (mainMsg?['text'] ?? rawPreview).toString(),
       mainMessageSenderId: (mainMsg?['sender_id'] ?? 'adversario-99').toString(),

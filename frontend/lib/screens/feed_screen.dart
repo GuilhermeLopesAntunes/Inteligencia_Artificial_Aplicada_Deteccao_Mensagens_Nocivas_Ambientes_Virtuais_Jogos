@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/mock_api_service.dart';
+import '../services/notification_service.dart';
+import '../services/websocket_service.dart';
 import '../models/incident_summary.dart';
 import '../models/dependent.dart';
 import 'incident_detail_screen.dart';
@@ -12,10 +15,17 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
   static const String _allDependentsValue = 'ALL';
 
   final MockApiService _apiService = MockApiService();
+  final NotificationService _notificationService = NotificationService();
+  WebsocketService? _wsService;
+  Timer? _syncTimer;
+  final Set<String> _notifiedIncidentIds = <String>{};
+  bool _initialSyncCompleted = false;
+  bool _isFetching = false;
+
   List<IncidentSummary> _incidents = [];
   List<Dependent> _dependents = [];
   bool _isLoading = true;
@@ -25,20 +35,144 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initNotifications();
     _loadData();
+    _initWebsocket();
+    _syncTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadData(silent: true);
+    });
   }
 
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _wsService?.connect();
+      _loadData(silent: true);
+    }
+  }
+
+  Future<void> _initNotifications() async {
+    await _notificationService.init();
+    _notificationService.onNotificationTap = (String incidentId) {
+      if (!mounted) return;
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (_) => IncidentDetailScreen(incidentId: incidentId),
+            ),
+          )
+          .then((_) => _loadData(silent: true));
+    };
+  }
+
+  void _triggerPhoneNotification(IncidentSummary incident) {
+    _notificationService.showIncidentNotification(incident);
+    if (!mounted) return;
+
+    final isCritical = incident.severity == 'CRITICO';
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor:
+            isCritical ? const Color(0xFFDC2626) : const Color(0xFF0E58A8),
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          isCritical
+              ? '🚨 ALERTA CRÍTICO (${incident.dependentName}): ${incident.preview}'
+              : '⚠️ Novo incidente (${incident.dependentName}): ${incident.preview}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        action: SnackBarAction(
+          label: 'VER',
+          textColor: Colors.white,
+          onPressed: () {
+            Navigator.of(context)
+                .push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        IncidentDetailScreen(incidentId: incident.id),
+                  ),
+                )
+                .then((_) => _loadData(silent: true));
+          },
+        ),
+      ),
+    );
+  }
+
+  void _initWebsocket() {
+    _wsService = WebsocketService(
+      onEvent: (eventType, incident, rawData) {
+        if (!mounted) return;
+        if ((eventType == 'incident.critical' ||
+                eventType == 'incident.created') &&
+            incident != null) {
+          if (_notifiedIncidentIds.add(incident.id)) {
+            _apiService.saveKnownIncidentIds(_notifiedIncidentIds);
+            _triggerPhoneNotification(incident);
+          }
+          // Insere o incidente na tela imediatamente em 0ms sem aguardar o GET
+          setState(() {
+            final existingIdx =
+                _incidents.indexWhere((i) => i.id == incident.id);
+            if (existingIdx == -1) {
+              _incidents = [incident, ..._incidents];
+            } else {
+              final copy = List<IncidentSummary>.from(_incidents);
+              copy[existingIdx] = incident;
+              _incidents = copy;
+            }
+          });
+        }
+        _loadData(silent: true);
+      },
+    );
+    _wsService!.connect();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _syncTimer?.cancel();
+    _wsService?.close();
+    super.dispose();
+  }
+
+  Future<void> _loadData({bool silent = false}) async {
+    if (_isFetching) return;
+    _isFetching = true;
+
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final dependents = await _apiService.getDependents();
       final incidents = await _apiService.getIncidents();
 
       if (!mounted) return;
+
+      if (!_initialSyncCompleted) {
+        for (final inc in incidents) {
+          _notifiedIncidentIds.add(inc.id);
+        }
+        _initialSyncCompleted = true;
+      } else {
+        for (final inc in incidents) {
+          if (_notifiedIncidentIds.add(inc.id)) {
+            _triggerPhoneNotification(inc);
+          }
+        }
+      }
+
       setState(() {
         _dependents = dependents;
         _incidents = incidents;
@@ -49,11 +183,14 @@ class _FeedScreenState extends State<FeedScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Erro ao carregar dados';
-      });
+      if (!silent) {
+        setState(() {
+          _errorMessage = 'Erro ao carregar dados';
+        });
+      }
     } finally {
-      if (mounted) {
+      _isFetching = false;
+      if (mounted && !silent) {
         setState(() {
           _isLoading = false;
         });
@@ -190,6 +327,7 @@ class _FeedScreenState extends State<FeedScreen> {
                           children: [
                             DropdownButtonFormField<String>(
                               value: _selectedDependentId,
+                              isExpanded: true,
                               decoration: InputDecoration(
                                 labelText: 'Dependente Monitorado',
                                 prefixIcon: const Icon(
@@ -384,12 +522,17 @@ class _FeedScreenState extends State<FeedScreen> {
                                                     ),
                                                   ),
                                                 ),
-                                                Text(
-                                                  _getStatusLabel(incident.status),
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: severityColor,
+                                                const SizedBox(width: 8),
+                                                Flexible(
+                                                  child: Text(
+                                                    _getStatusLabel(incident.status),
+                                                    overflow: TextOverflow.ellipsis,
+                                                    textAlign: TextAlign.end,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: severityColor,
+                                                    ),
                                                   ),
                                                 ),
                                               ],
